@@ -1,5 +1,12 @@
+# *******************************************************************************#
+#  ***************************************************************************#
+#   **************** ONLY THING CHANGED IN THIS GPT4_4.PY IS **************#
+#     ************** FILE SAVED IN ORIGINAL DIMENSION *********************#
+
+
 import numpy as np
 import os
+import time
 from skimage.metrics import structural_similarity as ssim
 import math
 import cv2
@@ -31,11 +38,19 @@ def compress_image(image, scale_factor=0.5, color_depth=4):
     max_value = 2 ** color_depth - 1
     compressed_image = np.round(resized_image / 255 * max_value) * (255 // max_value)
 
-    return compressed_image.astype(np.uint8)
+    # Resize back to original dimensions before saving
+    compressed_image_resized = resize_to_original(compressed_image, image.shape)
+
+    return compressed_image_resized.astype(np.uint8)
+
+# Function to resize the compressed image to match the original dimensions
+def resize_to_original(compressed, original_shape):
+    return cv2.resize(compressed, (original_shape[1], original_shape[0]), interpolation=cv2.INTER_LINEAR)
 
 # Function to calculate PSNR
 def calculate_psnr(original, compressed):
-    mse = np.mean((original - compressed) ** 2)
+    compressed_resized = resize_to_original(compressed, original.shape)
+    mse = np.mean((original - compressed_resized) ** 2)
     if mse == 0:
         return float('inf')
     max_pixel = 255.0
@@ -44,8 +59,9 @@ def calculate_psnr(original, compressed):
 
 # Function to calculate SSIM
 def calculate_ssim(original, compressed):
+    compressed_resized = resize_to_original(compressed, original.shape)
     original_gray = cv2.cvtColor(original, cv2.COLOR_BGR2GRAY)
-    compressed_gray = cv2.cvtColor(compressed, cv2.COLOR_BGR2GRAY)
+    compressed_gray = cv2.cvtColor(compressed_resized, cv2.COLOR_BGR2GRAY)
     ssim_value = ssim(original_gray, compressed_gray)
     return ssim_value
 
@@ -69,7 +85,9 @@ def auto_adjust_settings(original_image, target_psnr=30, target_ssim=0.95):
     scale_factor = 1.0
     color_depth = 8
 
-    for sf in np.arange(1.0, 0.1, -0.1):
+    low_sf, high_sf = 0.1, 1.0
+    while high_sf - low_sf > 0.05:
+        sf = (high_sf + low_sf) / 2
         for cd in range(8, 1, -1):
             compressed_image = compress_image(original_image, scale_factor=sf, color_depth=cd)
             psnr_value = calculate_psnr(original_image, compressed_image)
@@ -78,12 +96,15 @@ def auto_adjust_settings(original_image, target_psnr=30, target_ssim=0.95):
             if psnr_value >= target_psnr and ssim_value >= target_ssim:
                 scale_factor = sf
                 color_depth = cd
+                high_sf = sf
+                break
+        else:
+            low_sf = sf
 
     return scale_factor, color_depth
 
 # Main function
 def main():
-    # Taken as an input or by default
     image_path = input("Enter the path to the image file: ")
 
     # Load the original image
@@ -93,8 +114,11 @@ def main():
         return
 
     # Allow user to input custom PSNR and SSIM targets
-    target_psnr = float(input("Enter the target PSNR (default 30): ") or 30)
+    target_psnr = float(input("Enter the target PSNR  (default 30): ") or 30)
     target_ssim = float(input("Enter the target SSIM (default 0.95): ") or 0.95)
+
+    # Start timer for compression
+    start_time = time.time()
 
     # Automatically adjust settings
     scale_factor, color_depth = auto_adjust_settings(original_image, target_psnr=target_psnr, target_ssim=target_ssim)
@@ -103,9 +127,15 @@ def main():
     # Compress the image
     compressed_image = compress_image(original_image, scale_factor, color_depth)
 
-    # Save the compressed image
-    output_path = os.path.splitext(image_path)[0] + "_compressed.png"
-    cv2.imwrite(output_path, compressed_image)
+    # Save the compressed image as JPEG
+    output_path = os.path.splitext(image_path)[0] + "_comp_442.jpg"
+    compression_quality = 85  # Adjust JPEG quality (1-100, lower = more compression)
+    cv2.imwrite(output_path, compressed_image, [cv2.IMWRITE_JPEG_QUALITY, compression_quality])
+
+    # End timer for compression
+    end_time = time.time()
+    compression_time = end_time - start_time
+
     print(f"Compressed image saved to {output_path}")
 
     # Calculate and display quality metrics
@@ -113,6 +143,7 @@ def main():
     ssim_value = calculate_ssim(original_image, compressed_image)
     print(f"PSNR: {psnr_value:.2f} dB")
     print(f"SSIM: {ssim_value:.2f}")
+    print(f"Time taken for compression: {compression_time:.2f} seconds")
 
 if __name__ == "__main__":
     main()
